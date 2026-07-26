@@ -1,0 +1,57 @@
+version: '3.8'
+
+# [CL-T1] Both containers run as root (Docker default).
+#         If the app is compromised, the attacker has root inside the container.
+#         Fix: add `user: "1001:1001"` and create a non-root user in the Dockerfile.
+#
+# [CL-T1] No memory or CPU limits — one container can starve others on the host.
+#
+# [CL-T2] No healthcheck defined — Docker/Compose doesn't know if the app
+#         is actually ready to serve traffic after starting. The depends_on
+#         condition only checks that the container started, not that it's healthy.
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # Secrets in docker-compose — committed to source
+      DB_PASSWORD: Pr0d$ecret!2024
+      JWT_SECRET: tm-jwt-super-secret-key-do-not-share
+      REDIS_PASSWORD: redis-auth-2024
+    depends_on:
+      - postgres
+      - redis
+    # Missing:
+    # user: "1001:1001"
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 512M
+    #       cpus: '0.5'
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: teammetrics
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: Pr0d$ecret!2024
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
+    # No healthcheck — app may try to connect before postgres is ready
+
+  redis:
+    image: redis:7
+    command: redis-server --requirepass redis-auth-2024
+    # No memory limit — can consume all available host memory
+
+volumes:
+  postgres_data:
