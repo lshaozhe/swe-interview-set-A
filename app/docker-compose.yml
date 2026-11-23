@@ -1,0 +1,37 @@
+# INTERVIEWER-ANNOTATION-START
+# [CL-11 · T1 · security] Containers run as root with no memory or CPU limits, and secrets are in the compose file.
+#     Look near: build: .
+# [CL-12 · T2 · reliability] depends_on only waits for start, not health: no healthchecks defined, so the app may start before the database is ready.
+#     Look near: depends_on:
+# INTERVIEWER-ANNOTATION-END
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DB_PASSWORD: Pr0d$ecret!2024
+      JWT_SECRET: tm-jwt-super-secret-key-do-not-share
+      REDIS_PASSWORD: redis-auth-2024
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: teammetrics
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: Pr0d$ecret!2024
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+
+  redis:
+    image: redis:7
+    command: redis-server --requirepass redis-auth-2024
+
+volumes:
+  postgres_data:

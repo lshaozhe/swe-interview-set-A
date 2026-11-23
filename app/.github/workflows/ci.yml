@@ -1,0 +1,53 @@
+# INTERVIEWER-ANNOTATION-START
+# [DSO-08 · T1 · security] Cloud credentials are plain text in the workflow.
+#     Look near: AWS_ACCESS_KEY_ID:
+# [DSO-09 · T2 · delivery] No audit, SAST, secret scanning or image scanning; no typecheck or lint.
+#     Look near: run: npm test
+# [DSO-10 · T3 · delivery] Every branch push can deploy to production.
+#     Look near: branches: '*'
+# [DSO-11 · T3 · delivery] No approval gate, no staging, no health verification or rollback.
+#     Look near: --force-new-deployment
+# INTERVIEWER-ANNOTATION-END
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: '*'
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_ACCESS_KEY_ID: AKIA_EXAMPLE_NOT_A_REAL_KEY
+      AWS_SECRET_ACCESS_KEY: example/not/a/real/secret/key
+      AWS_DEFAULT_REGION: ap-southeast-1
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Docker image
+        run: docker build -t teammetrics:${{ github.sha }} .
+
+      - name: Push to ECR
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin $ECR_REGISTRY
+          docker push $ECR_REGISTRY/teammetrics:${{ github.sha }}
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster teammetrics-prod \
+            --service teammetrics-app \
+            --force-new-deployment

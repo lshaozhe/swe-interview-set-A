@@ -1,0 +1,15 @@
+{
+  "name": "swe-interview-set-a",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/check-manifest.mjs",
+    "probes": "node scripts/gen-probes.mjs",
+    "proofs": "./scripts/run-proofs.sh",
+    "annotate": "node scripts/annotate.mjs",
+    "package:candidate": "./scripts/package-candidate.sh"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.1"
+  }
+}

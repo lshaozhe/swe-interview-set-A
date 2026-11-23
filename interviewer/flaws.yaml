@@ -1,0 +1,877 @@
+# TeamMetrics (Set A, TypeScript edition): flaw manifest. Interviewer only. Never share with the engineer.
+#
+# tier 1 = spots it and explains the impact          -> evidence for S1
+# tier 2 = fixes it and explains why/what breaks      -> evidence for S2
+# tier 3 = reasons about failure modes and trade-offs -> evidence for S3
+#
+# lens = the aspect of web-app engineering the flaw exercises, so coverage can be checked:
+#   security | correctness | performance | a11y | data-integrity | reliability | observability | quality | delivery | maintainability
+#
+# proof: true means interviewer/proofs/ has a test that passes while the flaw exists.
+# anchor is text that must still appear in the file (npm run check verifies it).
+
+domains:
+  FE: Frontend Engineering
+  BE: Backend Engineering
+  CL: Cloud Application Engineering
+  SA: Software Architecture
+  DA: Data Architecture
+  DSO: DevSecOps
+flaws:
+- id: FE-01
+  domain: FE
+  tier: 1
+  lens: performance
+  file: src/client/components/Dashboard.tsx
+  anchor: const totals = data.reduce(
+  flaw: Totals are recomputed on every render and the component is not memoised, so any parent re-render repeats the work.
+  probe: The page feels slow with a few thousand reports. Where do you start?
+  strong: Profiles first; names useMemo and React.memo and when they help; avoids premature optimisation.
+  grow: Describe a time you used the React profiler to find the real cause.
+- id: FE-02
+  domain: FE
+  tier: 2
+  lens: performance
+  file: src/client/components/Dashboard.tsx
+  anchor: useState<Filters>
+  flaw: Filter state lives in Dashboard, so every keystroke re-renders the whole dashboard including the table.
+  probe: Type quickly in the search box. What re-renders?
+  strong: Explains lifting state down; colocation; memoising the table or debouncing.
+  grow: Explain where state should live and why.
+- id: FE-03
+  domain: FE
+  tier: 1
+  lens: performance
+  file: src/client/components/ReportTable.tsx
+  anchor: '{reports.map(r => ('
+  flaw: Every row is rendered into the DOM at once; no virtualisation or pagination.
+  probe: What happens with 10,000 reports?
+  strong: Virtualisation (TanStack Virtual) or server pagination; measures first.
+  grow: Compare pagination and virtualisation.
+- id: FE-04
+  domain: FE
+  tier: 3
+  lens: correctness
+  file: src/client/components/OrgSwitcher.tsx
+  anchor: window.addEventListener('focus'
+  flaw: The focus listener closes over the first value of currentOrg, is never removed and stacks up, so the wrong org's data is synced when the tab regains focus.
+  probe: Switch org, then tab away and back. What gets synced?
+  strong: Explains stale closure, dependency array and cleanup; refs or functional updates.
+  grow: Explain closures in effects with an example.
+- id: FE-05
+  domain: FE
+  tier: 1
+  lens: correctness
+  file: src/client/components/UserProfile.tsx
+  anchor: apiClient.get(`/api/users/${userId}`)
+  flaw: 'The request is made in the component body, not an effect: it fires on every render, loops with setState, and has no error state or cleanup.'
+  probe: Open the network tab on the profile page. What do you see?
+  strong: Spots a request loop; moves to a hook or TanStack Query; adds loading and error states.
+  grow: Explain how render and effects differ.
+- id: FE-06
+  domain: FE
+  tier: 2
+  lens: reliability
+  file: src/client/components/ExportButton.tsx
+  anchor: const handleExport = async () => {
+  flaw: The button is not disabled while the request runs (double submit), and the UI expects a jobId the API never returns.
+  probe: Click Export twice quickly. What happens, and what does the user see?
+  strong: Single-flight guard; disabled state; matches the contract; shows progress.
+  grow: Describe how you prevent duplicate submissions end to end.
+- id: FE-07
+  domain: FE
+  tier: 2
+  lens: reliability
+  file: src/client/hooks/usePolling.ts
+  anchor: setInterval(poll, intervalMs)
+  flaw: The interval is never cleared, so each mount adds another timer and the app slows down over time; onData is missing from the dependencies.
+  probe: Navigate between pages ten times. What happens to the number of requests?
+  strong: Finds the leak; returns a cleanup; discusses AbortController and visibility.
+  grow: Explain effect cleanup with an example.
+- id: FE-08
+  domain: FE
+  tier: 2
+  lens: correctness
+  file: src/client/utils/format.ts
+  anchor: toLocaleString()
+  flaw: Dates render in the viewer's timezone, so the same report shows different times to different users.
+  probe: A Singapore user and a London user compare timestamps. What do they see?
+  strong: Names browser-local formatting; fixed timezone or user preference with Intl.DateTimeFormat.
+  grow: Describe how you store and show timestamps.
+- id: FE-09
+  domain: FE
+  tier: 2
+  lens: correctness
+  file: src/client/hooks/useReports.ts
+  anchor: '}, [])'
+  flaw: filters are missing from the effect dependencies, so the data never refetches when filters change.
+  probe: Change a filter. What happens to the data?
+  strong: Notes the dependency array and lint rule; considers TanStack Query with the filter in the key.
+  grow: Explain how dependency arrays are checked.
+- id: FE-10
+  domain: FE
+  tier: 3
+  lens: correctness
+  file: src/client/hooks/useReports.ts
+  anchor: 'params: filters'
+  flaw: 'No AbortController: fast filter changes race and the last response to arrive wins, not the last request sent.'
+  probe: Change filters quickly on a slow network. Which result do you see?
+  strong: Describes the race; abort or ignore stale responses; or use a library that handles it.
+  grow: Explain request races and two ways to avoid them.
+- id: FE-11
+  domain: FE
+  tier: 2
+  lens: reliability
+  file: src/client/api/client.ts
+  anchor: apiClient.interceptors.request.use
+  flaw: 'There is no timeout and no response interceptor: 401s and 500s are handled inconsistently by each caller, and nothing retries transient failures.'
+  probe: The API stops responding. What does the user see?
+  strong: Timeout, central error handling, 401 redirect, retry policy for safe calls.
+  grow: Design a shared API client.
+- id: FE-12
+  domain: FE
+  tier: 1
+  lens: a11y
+  file: src/client/pages/LoginPage.tsx
+  anchor: placeholder="Email"
+  flaw: Inputs have no labels, errors are not announced, and the form relies on colour for the error.
+  probe: How would a screen-reader user sign in?
+  strong: Labels, role=alert or aria-live, not colour alone.
+  grow: Describe accessible form errors.
+- id: FE-13
+  domain: FE
+  tier: 2
+  lens: a11y
+  file: src/client/components/ReportTable.tsx
+  anchor: <th>Status</th>
+  flaw: The data table has no caption or header scope, and focus outlines are removed globally.
+  probe: Navigate this table with a keyboard only.
+  strong: Caption, th scope, visible focus, testing with a screen reader and axe.
+  grow: Run an accessibility audit on a screen you built.
+- id: FE-14
+  domain: FE
+  tier: 2
+  lens: correctness
+  file: src/client/components/Dashboard.tsx
+  anchor: Number(r.value.replace('$', ''))
+  flaw: Totals are calculated by parsing formatted strings the server produced, so thousands separators or another currency silently break the sum.
+  probe: What happens when a value is $1,200.00?
+  strong: Notes display formatting leaking into logic; the API should send numbers; format at the edge.
+  grow: Explain why you keep raw values separate from display values.
+- id: SA-01
+  domain: SA
+  tier: 1
+  lens: reliability
+  file: src/client/App.tsx
+  anchor: <AuthProvider>
+  flaw: There is no error boundary, so an uncaught error in any component blanks the whole app.
+  probe: A component throws during render. What does the user see?
+  strong: Error boundary with fallback and reporting; boundaries per route.
+  grow: Explain what error boundaries do and do not catch.
+- id: SA-02
+  domain: SA
+  tier: 1
+  lens: security
+  file: src/client/App.tsx
+  anchor: path="/admin"
+  flaw: 'No route guards: /admin and /dashboard render without checking authentication.'
+  probe: Open /admin in a private window.
+  strong: Route guard; but the server is the real control; redirects with return URL.
+  grow: Explain why client-side guards are not security.
+  chain: authz
+- id: SA-03
+  domain: SA
+  tier: 2
+  lens: performance
+  file: src/client/context/AuthContext.tsx
+  anchor: value={{ user, token, login, logout, refreshToken }}
+  flaw: The context value is a new object every render, so every consumer re-renders on any auth change.
+  probe: What re-renders when the token refreshes?
+  strong: useMemo the value or split contexts; state vs actions.
+  grow: Explain context re-render behaviour.
+- id: SA-04
+  domain: SA
+  tier: 2
+  lens: maintainability
+  file: src/client/components/UserProfile.tsx
+  anchor: useState<Profile | null>(null)
+  flaw: Data fetching is mixed into the component instead of a hook or service.
+  probe: Where would you test the fetching logic?
+  strong: Extract hook or query; separate view from data.
+  grow: Describe how you separate data from presentation.
+- id: SA-05
+  domain: SA
+  tier: 1
+  lens: maintainability
+  file: src/server/routes/reports.ts
+  anchor: const formatted = rows.map(r => ({
+  flaw: Filtering, formatting and pagination logic lives in the route handler.
+  probe: Where would you add pagination, and how would you test it?
+  strong: Service layer; thin routes; DTOs.
+  grow: Describe the layers you would use.
+- id: SA-06
+  domain: SA
+  tier: 3
+  lens: reliability
+  file: src/server/services/notificationService.ts
+  anchor: await axios.post(SLACK_WEBHOOK
+  flaw: 'Slack, email and SMS are called in sequence on the critical path of report creation: any outage breaks creation, there is no retry, and adding a channel means editing this file.'
+  probe: Slack is down. Can a user create a report?
+  strong: Events and a queue with independent consumers; retries; outbox pattern.
+  grow: Design asynchronous notifications and discuss delivery guarantees.
+  proof: true
+  chain: reliability
+- id: SA-07
+  domain: SA
+  tier: 2
+  lens: quality
+  file: tests/server/reportService.unit.test.ts
+  anchor: toHaveBeenCalledWith({
+  flaw: Unit tests assert which internal functions were called, not observable behaviour, so refactors break them and bugs pass.
+  probe: What would these tests catch, and what would they miss?
+  strong: Behaviour over implementation; fakes; integration tests.
+  grow: Rewrite one of these tests around behaviour.
+  chain: tests
+- id: SA-08
+  domain: SA
+  tier: 3
+  lens: quality
+  file: tests/server/reports.api.test.ts
+  anchor: describe('GET /api/reports'
+  flaw: 'Integration tests cover the happy path only: nothing checks authorisation, tenant isolation, injection, failure of a dependency or concurrency.'
+  probe: All tests are green. What is still unproven?
+  strong: Lists the missing classes of test and prioritises by risk.
+  grow: Choose the three tests that would protect this API most.
+  chain: tests
+- id: SA-09
+  domain: SA
+  tier: 2
+  lens: maintainability
+  file: src/shared/schemas.ts
+  anchor: export const reportSchema
+  flaw: A shared response schema exists but is not used by the server or the client; two data-access styles (raw and parameterised) coexist.
+  probe: What guarantees the API response matches the client's type?
+  strong: Runtime validation at boundaries; one query style.
+  grow: Explain trust boundaries and runtime validation.
+- id: BE-01
+  domain: BE
+  tier: 1
+  lens: security
+  file: src/server/index.ts
+  anchor: app.use(cors())
+  flaw: CORS is wide open to every origin.
+  probe: Which sites can call this API from a browser?
+  strong: Allowlist origins; credentials; understand what CORS does and does not stop.
+  grow: Explain what CORS protects.
+- id: BE-02
+  domain: BE
+  tier: 1
+  lens: reliability
+  file: src/server/routes/users.ts
+  anchor: const user = await db.getUserById(req.params.id)
+  flaw: Async handlers have no try/catch; in Express 4 a rejected promise is an unhandled rejection that can crash the process.
+  probe: The database blips. What happens to the API?
+  strong: Error handling, wrapper or Express 5, global handler, process policy.
+  grow: Explain how errors flow through Express.
+- id: BE-03
+  domain: BE
+  tier: 1
+  lens: security
+  file: src/server/routes/reports.ts
+  anchor: router.get('/', async (req, res) => {
+  flaw: 'The reports routes have no authentication: anyone can read any organisation''s reports.'
+  probe: Call GET /api/reports?orgId=2 with no token.
+  strong: Auth middleware and tenant scoping from the token, not the query.
+  grow: Explain tenant scoping.
+  proof: true
+  chain: authz
+- id: BE-04
+  domain: BE
+  tier: 1
+  lens: security
+  file: src/server/index.ts
+  anchor: app.use(express.json())
+  flaw: No rate limiting is applied anywhere (the limiter exists but is never mounted).
+  probe: How fast can someone guess passwords here?
+  strong: Applies per-user and per-IP limits; brute-force protection.
+  grow: Compare rate limit strategies.
+  proof: true
+- id: BE-05
+  domain: BE
+  tier: 2
+  lens: security
+  file: src/server/middleware/auth.ts
+  anchor: jwt.decode(token)
+  flaw: decode() does not verify the signature or expiry, so forged and expired tokens are accepted.
+  probe: Can I make my own token?
+  strong: Uses verify; checks expiry and algorithm; explains why decode is not authentication.
+  grow: Explain what a JWT signature protects.
+  proof: true
+  chain: authz
+- id: BE-06
+  domain: BE
+  tier: 2
+  lens: observability
+  file: src/server/index.ts
+  anchor: app.use('/api/auth', authRouter)
+  flaw: No request id, access logging or correlation across services.
+  probe: A user reports an error at 10:42. How do you find it?
+  strong: Request id, structured logs, tracing.
+  grow: Describe what you log for every request.
+- id: BE-07
+  domain: BE
+  tier: 1
+  lens: reliability
+  file: src/server/index.ts
+  anchor: return app
+  flaw: There is no error-handling middleware and no process-level handler for unhandled rejections.
+  probe: What is the last line of defence when a handler throws?
+  strong: Error middleware, process handlers, crash-and-restart policy.
+  grow: Describe a safe failure policy for a Node service.
+- id: BE-08
+  domain: BE
+  tier: 1
+  lens: performance
+  file: src/server/routes/export.ts
+  anchor: const csv = generateCSV(rows)
+  flaw: CSV generation runs synchronously in the request and blocks the event loop for large exports.
+  probe: One user exports 500,000 rows. What happens to everyone else?
+  strong: Streaming, worker, or background job.
+  grow: Explain the Node event loop and blocking work.
+- id: BE-09
+  domain: BE
+  tier: 2
+  lens: reliability
+  file: src/server/routes/export.ts
+  anchor: router.post('/', authenticate, async (req, res) => {
+  flaw: 'There is no job queue: no status, retry or progress for exports.'
+  probe: How does a user know their export finished?
+  strong: Queue (BullMQ), status endpoint, notification.
+  grow: Design an export job end to end.
+- id: BE-10
+  domain: BE
+  tier: 3
+  lens: maintainability
+  file: src/server/routes/admin.ts
+  anchor: router.delete('/users/:id', authenticate
+  flaw: 'There is no central authorisation: each route would need ad-hoc role checks, so a new role means auditing every route.'
+  probe: We add a manager role. How many files change?
+  strong: Policy or RBAC middleware, deny by default, tests.
+  grow: Design an authorisation layer.
+- id: BE-11
+  domain: BE
+  tier: 2
+  lens: security
+  file: src/server/routes/users.ts
+  anchor: router.put('/:id', authenticate
+  flaw: 'IDOR: any logged-in user can read or edit any other user''s profile; responses include the password hash.'
+  probe: Can Bob read Alice's profile? What fields come back?
+  strong: Ownership and org checks; response DTO; never return hashes.
+  grow: Explain IDOR and how you test for it.
+  proof: true
+  chain: authz
+- id: BE-12
+  domain: BE
+  tier: 2
+  lens: security
+  file: src/server/routes/admin.ts
+  anchor: router.get('/users', authenticate
+  flaw: 'Admin routes only check that the caller is logged in: role enforcement exists only by hiding buttons in the React app.'
+  probe: Can a member call the admin endpoints directly?
+  strong: Server-side role checks; deny by default.
+  grow: Explain why UI hiding is not authorisation.
+  proof: true
+  chain: authz
+- id: BE-13
+  domain: BE
+  tier: 2
+  lens: correctness
+  file: src/server/db/queries.ts
+  anchor: UPDATE users SET name = $1, email = $2 WHERE id = $3
+  flaw: 'Profile updates write whatever is sent: no validation, uniqueness handling or mass-assignment control.'
+  probe: Send an empty email. What happens?
+  strong: Zod validation, allowed fields, conflict handling.
+  grow: Show validation at an API boundary.
+- id: BE-14
+  domain: BE
+  tier: 2
+  lens: security
+  file: src/server/routes/export.ts
+  anchor: const { orgId, filters } = req.body
+  flaw: The org to export comes from the request body, so any user can export any organisation's data.
+  probe: Export orgId 2 as a user in org 1.
+  strong: Take org from the token; add tests.
+  grow: Explain tenant scoping again, differently.
+  proof: true
+  chain: authz
+- id: BE-15
+  domain: BE
+  tier: 3
+  lens: security
+  file: src/server/routes/export.ts
+  anchor: '`"${String(v).replace(/"/g, ''""'')}"`'
+  flaw: CSV cells are quoted but formula characters are not neutralised (CSV injection).
+  probe: A report title is =HYPERLINK(...). What does Excel do?
+  strong: Prefix risky cells; document trust.
+  grow: Explain why exports are an attack surface.
+- id: BE-16
+  domain: BE
+  tier: 2
+  lens: reliability
+  file: src/server/routes/auth.ts
+  anchor: loginSchema.parse(req.body)
+  flaw: A malformed login body throws inside an async handler (unhandled rejection), and nothing slows brute force.
+  probe: Send an invalid JSON shape to /login.
+  strong: Safe parsing with 400; lockout; rate limit.
+  grow: Handle invalid input without crashing.
+- id: DA-01
+  domain: DA
+  tier: 1
+  lens: security
+  file: src/server/routes/reports.ts
+  anchor: WHERE org_id = '${orgId}'
+  flaw: orgId and status from the query string are interpolated into SQL (injection).
+  probe: What if orgId is a single quote?
+  strong: Parameterised queries; explains why escaping is brittle.
+  grow: Explain parameter binding.
+  proof: true
+  chain: sqli
+- id: DA-02
+  domain: DA
+  tier: 1
+  lens: performance
+  file: src/server/routes/reports.ts
+  anchor: '    SELECT *'
+  flaw: SELECT * with no LIMIT returns every column and row.
+  probe: The org has a million reports. What happens?
+  strong: Explicit columns, pagination, indexes.
+  grow: Design pagination.
+- id: DA-03
+  domain: DA
+  tier: 1
+  lens: performance
+  file: database/schema.sql
+  anchor: CREATE TABLE reports (
+  flaw: No indexes on org_id, status or created_at, so every filter scans the table.
+  probe: Which indexes do you add and how do you prove they help?
+  strong: Composite index on org and created_at; EXPLAIN; write cost.
+  grow: Read a query plan aloud.
+- id: DA-04
+  domain: DA
+  tier: 2
+  lens: security
+  file: database/schema.sql
+  anchor: org_id      INTEGER REFERENCES orgs(id),
+  flaw: 'Tenant isolation exists only in application WHERE clauses: no row-level security, so one missed clause leaks data.'
+  probe: What database feature could enforce isolation?
+  strong: Row-level security, per-request org setting, defence in depth.
+  grow: Compare app-level and database-level isolation.
+  chain: authz
+- id: DA-05
+  domain: DA
+  tier: 3
+  lens: performance
+  file: database/schema.sql
+  anchor: data        JSONB,
+  flaw: No partitioning, archival or retention for a table expected to reach tens of millions of rows.
+  probe: The reports table reaches 50 million rows. What is your plan?
+  strong: Range partitioning, archival, retention, index strategy.
+  grow: Explain partitioning trade-offs.
+- id: DA-06
+  domain: DA
+  tier: 2
+  lens: correctness
+  file: src/server/cache/redis.ts
+  anchor: await redis.set(`report:${id}`, JSON.stringify(report))
+  flaw: 'The cache has no TTL and no invalidation on update or delete: users see stale data forever.'
+  probe: A report is updated. When do users see it?
+  strong: TTL plus event invalidation; cache keys by version.
+  grow: Explain cache invalidation strategies.
+  proof: true
+- id: DA-07
+  domain: DA
+  tier: 3
+  lens: performance
+  file: src/server/cache/redis.ts
+  anchor: const rows = await query('SELECT * FROM reports WHERE id = $1', [id])
+  flaw: 'Cache stampede: concurrent misses all hit the database.'
+  probe: A hot key expires. What does the database see?
+  strong: Request coalescing, locks, early refresh, jitter.
+  grow: Describe stampede protection.
+  proof: true
+- id: DA-08
+  domain: DA
+  tier: 2
+  lens: reliability
+  file: src/server/db/queries.ts
+  anchor: export const pg = new PGlite({
+  flaw: No connection pooling or timeouts are configured (production defaults would have no max, idle or connection timeout), so load exhausts connections and queues forever.
+  probe: What limits how many requests can wait on the database?
+  strong: Pool size vs database limit, timeouts, backpressure, pgbouncer.
+  grow: Size a connection pool.
+- id: DA-09
+  domain: DA
+  tier: 2
+  lens: performance
+  file: src/server/services/reportService.ts
+  anchor: report.author = await db.getUserById(report.created_by)
+  flaw: 'N+1: one query per report to fetch its author.'
+  probe: How many queries does a 100-report page run?
+  strong: JOIN or IN query; shows with a query count.
+  grow: Show how you detect N+1.
+  proof: true
+- id: DA-10
+  domain: DA
+  tier: 3
+  lens: data-integrity
+  file: src/server/services/reportService.ts
+  anchor: await db.insertAuditLog({
+  flaw: 'Report, audit entry and notification are separate steps without a transaction: a failure leaves a report with no audit trail or a half-complete request.'
+  probe: The notification fails. What is in the database and what does the caller see?
+  strong: Transaction for DB writes; outbox for side effects; idempotency.
+  grow: Explain transactional boundaries.
+  proof: true
+  chain: reliability
+- id: DA-11
+  domain: DA
+  tier: 2
+  lens: security
+  file: src/server/db/queries.ts
+  anchor: return query('SELECT * FROM users')
+  flaw: getAllUsers returns every user across all orgs, including password hashes.
+  probe: Who can call this and what do they get?
+  strong: Scope, select needed columns, never hashes.
+  grow: Design response DTOs.
+- id: DA-12
+  domain: DA
+  tier: 2
+  lens: data-integrity
+  file: src/server/db/queries.ts
+  anchor: DELETE FROM users WHERE id = $1
+  flaw: Hard delete with no soft delete or audit; it also fails for any user who created reports (foreign key).
+  probe: An admin deletes a user who owns reports. What happens?
+  strong: Soft delete or reassign; audit; cascade policy.
+  grow: Choose a deletion strategy.
+  proof: true
+- id: DA-13
+  domain: DA
+  tier: 2
+  lens: performance
+  file: src/server/db/queries.ts
+  anchor: '''SELECT * FROM reports WHERE org_id = $1'','
+  flaw: The export query has no LIMIT or streaming and loads everything into memory; the audit log query is also unbounded.
+  probe: What does the export do at a million rows?
+  strong: Cursor or streaming; pagination for the audit log.
+  grow: Describe streaming a large result.
+- id: DA-14
+  domain: DA
+  tier: 2
+  lens: correctness
+  file: database/schema.sql
+  anchor: created_at  TIMESTAMP DEFAULT NOW()
+  flaw: Timestamps lack a time zone, there is no updated_at, deleted_at or version column, so no optimistic locking or history.
+  probe: Two admins edit the same report. What happens?
+  strong: timestamptz, version column, audit.
+  grow: Explain optimistic locking.
+- id: DA-15
+  domain: DA
+  tier: 2
+  lens: data-integrity
+  file: database/schema.sql
+  anchor: CREATE TABLE audit_log (
+  flaw: audit_log has no foreign keys, indexes or immutability.
+  probe: How would you query one org's audit trail quickly and trust it?
+  strong: Indexes, FKs or snapshot, append-only.
+  grow: Design an audit log.
+- id: CL-01
+  domain: CL
+  tier: 1
+  lens: security
+  file: infrastructure/ecs.tf
+  anchor: Action   = "*"
+  flaw: The task role has full administrator permissions.
+  probe: What can a compromised container do in AWS?
+  strong: Least privilege; scoped actions and resources.
+  grow: Write the policy the task actually needs.
+- id: CL-02
+  domain: CL
+  tier: 1
+  lens: reliability
+  file: infrastructure/ecs.tf
+  anchor: portMappings = [{ containerPort = 3000 }]
+  flaw: No container or target-group health check and no log configuration.
+  probe: A task crashes. What routes traffic to it, and where are its logs?
+  strong: Health checks, log driver, alarms.
+  grow: Explain liveness vs readiness.
+- id: CL-03
+  domain: CL
+  tier: 2
+  lens: reliability
+  file: infrastructure/ecs.tf
+  anchor: desired_count   = 2
+  flaw: Fixed desired count with no autoscaling.
+  probe: Traffic triples. What happens?
+  strong: Target tracking, load testing, limits.
+  grow: Choose scaling signals.
+- id: CL-04
+  domain: CL
+  tier: 3
+  lens: reliability
+  file: infrastructure/ecs.tf
+  anchor: subnets          = var.public_subnet_ids
+  flaw: Tasks run in public subnets with public IPs, with no placement spread or deployment circuit breaker.
+  probe: One AZ fails. What happens?
+  strong: Private subnets, multi-AZ, circuit breaker, rollback.
+  grow: Draw the network and failure domains.
+- id: CL-05
+  domain: CL
+  tier: 1
+  lens: security
+  file: infrastructure/security-groups.tf
+  anchor: description = "App traffic"
+  flaw: The app security group allows all TCP ports from the internet.
+  probe: Which ports should be reachable?
+  strong: Only the load balancer, only the app port.
+  grow: Design security groups for a three-tier app.
+- id: CL-06
+  domain: CL
+  tier: 2
+  lens: security
+  file: infrastructure/security-groups.tf
+  anchor: description = "PostgreSQL"
+  flaw: The database security group allows 5432 from 0.0.0.0/0.
+  probe: Who can connect to the database?
+  strong: Source from app SG only; private subnet.
+  grow: Explain defence in depth for databases.
+  chain: data
+- id: CL-07
+  domain: CL
+  tier: 2
+  lens: security
+  file: infrastructure/rds.tf
+  anchor: storage_encrypted       = false
+  flaw: No encryption at rest, deletion protection or final snapshot; the instance is publicly accessible.
+  probe: What do compliance reviews say about this?
+  strong: KMS, private, deletion protection.
+  grow: Explain encryption at rest and what it does not cover.
+- id: CL-08
+  domain: CL
+  tier: 2
+  lens: reliability
+  file: infrastructure/rds.tf
+  anchor: backup_retention_period = 0
+  flaw: Automated backups are disabled.
+  probe: A table is dropped by mistake. What can we recover?
+  strong: Backups, PITR, tested restore.
+  grow: Explain RPO and RTO.
+- id: CL-09
+  domain: CL
+  tier: 3
+  lens: reliability
+  file: infrastructure/rds.tf
+  anchor: instance_class    = "db.t3.medium"
+  flaw: 'One instance, no read replica or Multi-AZ: heavy dashboards contend with writes and failure means downtime.'
+  probe: Dashboard queries slow down writes. What do you do?
+  strong: Replica for reads, Multi-AZ, caching.
+  grow: Compare scaling reads and availability.
+- id: CL-10
+  domain: CL
+  tier: 1
+  lens: security
+  file: infrastructure/ecs.tf
+  anchor: '{ name = "DB_PASSWORD"'
+  flaw: Secrets are plain environment variables in the task definition.
+  probe: Where should these come from?
+  strong: Secrets Manager or SSM; task role.
+  grow: Explain how secrets reach a container.
+- id: CL-11
+  domain: CL
+  tier: 1
+  lens: security
+  file: docker-compose.yml
+  anchor: 'build: .'
+  flaw: Containers run as root with no memory or CPU limits, and secrets are in the compose file.
+  probe: What would an attacker with code execution in the container own?
+  strong: Non-root user, limits, secrets handling.
+  grow: Harden a compose service.
+- id: CL-12
+  domain: CL
+  tier: 2
+  lens: reliability
+  file: docker-compose.yml
+  anchor: 'depends_on:'
+  flaw: 'depends_on only waits for start, not health: no healthchecks defined, so the app may start before the database is ready.'
+  probe: Start everything at once. What fails?
+  strong: Healthchecks, condition service_healthy, retry on connect.
+  grow: Explain startup ordering problems.
+- id: CL-13
+  domain: CL
+  tier: 1
+  lens: security
+  file: Dockerfile
+  anchor: FROM node:latest
+  flaw: Unpinned latest image, runs as root, installs everything, no multi-stage build or .dockerignore.
+  probe: What would you change in this Dockerfile?
+  strong: Pin, non-root, multi-stage, production deps.
+  grow: Explain reproducible image builds.
+- id: DSO-01
+  domain: DSO
+  tier: 1
+  lens: security
+  file: src/server/config.ts
+  anchor: 'password: ''Pr0d$ecret!2024'''
+  flaw: Production credentials are hard-coded in source.
+  probe: Who has the database password?
+  strong: Environment or secret manager; rotate; scan history.
+  grow: Explain how to remove a committed secret safely.
+- id: DSO-02
+  domain: DSO
+  tier: 1
+  lens: security
+  file: src/client/store/authStore.ts
+  anchor: localStorage.setItem(AUTH_KEY, token)
+  flaw: The JWT is stored in localStorage, readable by any script on the page.
+  probe: What can an XSS bug do to this app?
+  strong: HttpOnly cookies; XSS exposure; trade-offs.
+  grow: Compare token storage options.
+  chain: authz
+- id: DSO-03
+  domain: DSO
+  tier: 1
+  lens: delivery
+  file: package.json
+  anchor: '"express": "^4.18.0"'
+  flaw: All dependencies use caret ranges, so installs can drift between machines.
+  probe: Two developers install a week apart. What differs?
+  strong: Lockfile, npm ci, pinning policy, Renovate.
+  grow: Explain semver ranges and lockfiles.
+- id: DSO-04
+  domain: DSO
+  tier: 2
+  lens: security
+  file: package.json
+  anchor: '"jsonwebtoken": "^8.5.1"'
+  flaw: jsonwebtoken 8.x has known CVEs and express 4 has known issues; nothing runs npm audit.
+  probe: How do you find vulnerable dependencies?
+  strong: npm audit in CI, upgrade policy, SCA.
+  grow: Describe a dependency-risk routine.
+- id: DSO-05
+  domain: DSO
+  tier: 1
+  lens: security
+  file: src/client/api/client.ts
+  anchor: 'baseURL: ''http://api.teammetrics.internal:3000'''
+  flaw: The API base URL is hard-coded in the client and not HTTPS.
+  probe: How does this behave in staging?
+  strong: Environment config, HTTPS, build-time vars.
+  grow: Explain configuration in a built SPA.
+- id: DSO-06
+  domain: DSO
+  tier: 3
+  lens: security
+  file: src/client/components/ExportButton.tsx
+  anchor: await apiClient.post('/api/export'
+  flaw: State-changing POSTs carry no CSRF protection; fine with bearer tokens today, but vulnerable if auth moves to cookies.
+  probe: If we move to cookies, what else changes?
+  strong: SameSite, CSRF tokens, origin checks.
+  grow: Explain CSRF.
+- id: DSO-07
+  domain: DSO
+  tier: 2
+  lens: security
+  file: tests/server/auth.api.test.ts
+  anchor: import config from '../../src/server/config'
+  flaw: Tests import the production config module directly; there is no separate test configuration, so a test run could touch production resources if wired to them.
+  probe: What stops a test from hitting production?
+  strong: Separate config by environment, no prod credentials in tests.
+  grow: Describe how you isolate test environments.
+- id: DSO-08
+  domain: DSO
+  tier: 1
+  lens: security
+  file: .github/workflows/ci.yml
+  anchor: 'AWS_ACCESS_KEY_ID:'
+  flaw: Cloud credentials are plain text in the workflow.
+  probe: What do you do if these were real?
+  strong: Rotate, OIDC, secrets.
+  grow: Explain OIDC for CI.
+- id: DSO-09
+  domain: DSO
+  tier: 2
+  lens: delivery
+  file: .github/workflows/ci.yml
+  anchor: 'run: npm test'
+  flaw: No audit, SAST, secret scanning or image scanning; no typecheck or lint.
+  probe: What does the pipeline not catch?
+  strong: Add scanners and gates.
+  grow: Pick the checks with the best value.
+- id: DSO-10
+  domain: DSO
+  tier: 3
+  lens: delivery
+  file: .github/workflows/ci.yml
+  anchor: 'branches: ''*'''
+  flaw: Every branch push can deploy to production.
+  probe: Push a feature branch. What happens?
+  strong: main only, environments, approvals.
+  grow: Design branch and environment rules.
+- id: DSO-11
+  domain: DSO
+  tier: 3
+  lens: delivery
+  file: .github/workflows/ci.yml
+  anchor: --force-new-deployment
+  flaw: No approval gate, no staging, no health verification or rollback.
+  probe: The new version is broken. What happens next?
+  strong: Staged rollout, health gates, rollback.
+  grow: Describe progressive delivery.
+- id: DSO-12
+  domain: DSO
+  tier: 2
+  lens: security
+  file: src/server/services/notificationService.ts
+  anchor: const SENDGRID_KEY = 'SG.hardcoded-key-here'
+  flaw: Third-party API keys are hard-coded.
+  probe: Where do provider keys live?
+  strong: Secret manager; rotation.
+  grow: Same as DSO-01, applied to vendors.
+- id: DSO-13
+  domain: DSO
+  tier: 2
+  lens: security
+  file: src/server/middleware/rateLimit.ts
+  anchor: const limiter = rateLimit({
+  flaw: The limiter is keyed by IP, so one noisy user behind a shared NAT throttles everyone.
+  probe: 50 people share an office IP. What happens?
+  strong: Key by user or token; per-route limits.
+  grow: Choose rate-limit keys.
+- id: DSO-14
+  domain: DSO
+  tier: 3
+  lens: reliability
+  file: src/server/middleware/rateLimit.ts
+  anchor: 'max: 100,'
+  flaw: 'The default in-memory store is per process: three instances give three times the limit and reset on deploy.'
+  probe: We run three instances. What is the real limit?
+  strong: Shared store (Redis) or edge limiting.
+  grow: Design distributed rate limiting.
+- id: DSO-15
+  domain: DSO
+  tier: 3
+  lens: security
+  file: src/server/middleware/auth.ts
+  anchor: req.user = payload
+  flaw: 'There is no token revocation: a stolen or suspended user''s token works for 24 hours.'
+  probe: An employee leaves. When does access end?
+  strong: Short tokens, refresh, denylist, session store.
+  grow: Compare stateless and stateful sessions.
+- id: DSO-16
+  domain: DSO
+  tier: 1
+  lens: security
+  file: infrastructure/rds.tf
+  anchor: password = "Pr0d$ecret!2024"
+  flaw: The database password is committed in Terraform (and ends up in state).
+  probe: Where does the password live after apply?
+  strong: Secrets Manager, no secrets in state.
+  grow: Explain Terraform state sensitivity.
